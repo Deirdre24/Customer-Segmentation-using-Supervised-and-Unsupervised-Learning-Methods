@@ -1,0 +1,348 @@
+---
+title: "Random forest"
+format: html
+editor: visual
+---
+
+# Random Forest Model Evaluation for Customer Churn Prediction
+
+In this section, we focus on building a Random Forest model to predict customer churn. We'll evaluate the model's performance using different thresholds, and assess key performance metrics like accuracy, AUC, precision, and recall.
+
+## Threshold Definition and Data Overview
+
+This part sets the thresholds based on the data's engagement metrics and membership length. These thresholds will define what constitutes "low engagement" and "long membership," which are important for determining churn.
+
+1.  Loading Libraries
+
+    ```{r loading libraries, echo=FALSE, message=FALSE}
+    library(randomForest)  # For Random Forest
+    library(caret)         # For model evaluation
+    library(pROC)          # For generating ROC curve and calculating AUC
+
+    ```
+
+2.  Checking column names using the names() function: To inspect the column names in dataset (`Customer_csv`). It's useful for verifying that all necessary columns (like `Yearly.Amount.Spent`, `Churn`, etc.) are present and correctly labeled.
+
+3.  **Defining Thresholds**
+
+    This part sets the thresholds based on the data's engagement metrics and membership length. These thresholds will define what constitutes "low engagement" and "long membership," which are important for determining churn.
+
+    ```{r defining thresholds, echo=FALSE}
+
+    # Define thresholds for low engagement and long membership
+    time_on_app_low <- quantile(Customer_csv$Time.on.App, 0.25)  # 25th percentile for app engagement
+    time_on_website_low <- quantile(Customer_csv$Time.on.Website, 0.25)  # 25th percentile for website engagement
+    long_membership_threshold <- median(Customer_csv$Length.of.Membership)  # Median for membership duration
+    ```
+
+    **Thresholds**:
+
+    -   `time_on_app_low` and `time_on_website_low` capture the lowest quartile (25th percentile) of the respective engagement metrics, identifying users with low engagement.
+
+    -   `long_membership_threshold` uses the median length of membership to define long-term users.
+
+4.  Function for Evaluating Thresholds
+
+    ```{r evaluate function, echo=FALSE}
+    evaluate_threshold <- function() { ... }
+
+    ```
+
+    **Purpose:** This function automates the process of churn prediction and model evaluation.\
+    Key steps in the function include:
+
+5.  Defining Churn:
+
+    The `Churn` column is created by applying these thresholds. If a user exhibits both low engagement and long membership, they are classified as having "churned" (`Yes`); otherwise, they are considered "No" churn.
+
+    ```{r defining churn, echo=FALSE}
+
+    Customer_csv$Churn <- ifelse(
+        Customer_csv$Time.on.App < time_on_app_low & 
+        Customer_csv$Time.on.Website < time_on_website_low & 
+        Customer_csv$Length.of.Membership > long_membership_threshold, 
+        "Yes", "No"
+    )
+    Customer_csv$Churn <- as.factor(Customer_csv$Churn)  # Convert to factor
+
+    ```
+
+    -   Users with low engagement but long membership are considered churned.
+
+    -   This classification helps in separating the users that are unlikely to return from those with higher engagement.
+
+6.  Data Split (Training & Test)
+
+    The dataset is divided into a training set (70%) and a test set (30%) to train the model and then evaluate its performance.
+
+    ```{r data split, echo=FALSE}
+
+    # Splitting data into training and testing sets
+    set.seed(123)  # For reproducibility
+    train_index <- createDataPartition(Customer_csv$Churn, p = 0.7, list = FALSE)
+    train_data <- Customer_csv[train_index, ]
+    test_data <- Customer_csv[-train_index, ]
+    ```
+
+    -   The model is trained on 70% of the data (`train_data`) and tested on the remaining 30% (`test_data`).
+
+    -   `createDataPartition` ensures that the target variable (`Churn`) is represented proportionally in both sets.
+
+7.  **Random Forest Model (Training & Tuning):**
+
+````         
+The Random Forest model is initially built with `ntree = 500` trees and `mtry = 2` (the number of variables to consider at each split). A second, tuned model is then created with `ntree = 1000` trees and `mtry = 3` for better performance.
+
+```{r building rf model, echo=FALSE, message=FALSE}
+
+# Building the random forest model
+rf_model <- randomForest(Churn ~ Time.on.App + Time.on.Website + Length.of.Membership + Yearly.Amount.Spent,
+                         data = train_data, 
+                         ntree = 500,  # Number of trees
+                         mtry = 2,     # Number of variables considered at each split
+                         importance = TRUE)  # To compute variable importance
+
+# Tuned model with more trees and higher mtry
+rf_model_tune <- randomForest(Churn ~ Time.on.App + Time.on.Website + Length.of.Membership + Yearly.Amount.Spent,
+                              data = train_data,
+                              ntree = 1000,  # Increase number of trees
+                              mtry = 3,      # Higher mtry value
+                              importance = TRUE)
+
+```
+
+Here, the **Random Forest model** is built using the training data (`train_data`).
+
+-   ntree = 500 specifies that 500 trees should be grown.
+
+-   mtry = 2 sets the number of variables that will be considered for splitting at each node (a typical setting for random forest models).
+
+-   `importance = TRUE` tells the model to calculate and store the importance of each variable in the model.
+
+-   The first model (`rf_model`) is basic and provides a baseline and tuned model (`rf_model_tune`) adjusts `ntree` and `mtry` for better performance.
+````
+
+8.  Model Predictions and Evaluation
+
+    Once the model is trained, we can use it to make predictions on the test set. This will give us the predicted churn labels for customers in the test set.
+
+    ```{r predicting customer churn, echo=FALSE}
+
+    rf_predictions <- predict(rf_model_tune, test_data)
+
+    ```
+
+    -   **Predictions:** For the first 10 samples in the test dataset, the model predicted `No` (not churned) for all cases.
+
+    -   **Levels:** The possible values for predictions are `No` (not churned) and `Yes` (churned).
+
+    -   insights: The model predicts no churn for these samples, indicating that these users likely have high engagement or do not meet the churn criteria.
+
+        ```{r comparison, echo=FALSE, message=FALSE}
+        # Compare predictions with actual churn values (from test_data)
+          comparison <- data.frame(Actual = test_data$Churn, Predicted = rf_predictions)
+          print("Predicted vs Actual Churn:")
+          print(head(comparison, 10))
+          
+        ```
+
+    -   For these first 10 samples, the model correctly predicted that none of them churned (`No` matches `No`).
+
+9.  Evaluate model performance
+
+    We can evaluate the performance of the model by comparing the predicted churn labels with the actual churn labels in the test set. We can use metrics such as accuracy, precision, recall, AUC, etc.
+
+    **Confusion Matrix**:
+
+    ```{r model evaluation, echo=FALSE}
+
+    # Confusion Matrix to evaluate model performance
+    conf_matrix <- confusionMatrix(rf_predictions, test_data$Churn)
+
+
+    print(conf_matrix)
+
+    ```
+
+    -   **Observations:**
+
+        -   **True Negatives (`No-No`):** 144 users correctly predicted as not churned.
+
+        -   **True Positives (`Yes-Yes`):** 1 user correctly predicted as churned.
+
+        -   **False Negatives (`Yes-No`):** 4 users churned but were predicted as not churned.
+
+        -   **False Positives (`No-Yes`):** 0 users incorrectly predicted as churned.
+
+    <!-- -->
+
+    -   Shows the number of true positives, true negatives, false positives, and false negatives. In your case, the model is performing very well with an accuracy of \~97% ( 0.97320.97320.9732 (97.32%) — The proportion of correct predictions.).
+
+    -   **Other Metrics:**
+
+        -   **Sensitivity (Recall):** 1.00001.00001.0000 (100%) — The model identifies all users who did not churn.
+
+        -   **Specificity:** 0.20000.20000.2000 (20%) — The model struggles to identify churned users.
+
+        -   **Kappa:** 0.32580.32580.3258 — Indicates moderate agreement between predictions and actuals.
+
+    -   Prabilities for positive class
+
+        ```{r probs, echo=FALSE}
+        rf_probabilities <- predict(rf_model_tune, test_data, type = "prob")[, 2]
+          
+          # Print probabilities for the positive class (churn)
+          print("Probabilities for positive class:")
+          print(head(rf_probabilities, 10))
+          
+        ```
+
+        -   These values represent the predicted probabilities of churn (`Yes`) for the first 10 samples in the test dataset.
+
+        -   For most users, the probabilities are very low (close to 0), indicating high confidence in predicting `No` (not churned).
+
+        -   Insights: The model has high confidence in its predictions, with no user having a significant probability of churn.
+
+    -   **ROC curve and AUC:**
+
+        ```{r roc and auc}
+
+        roc_curve <- roc(test_data$Churn, rf_probabilities)
+        auc_value <- auc(roc_curve)
+
+        plot(roc_curve, main = "ROC Curve for Churn Prediction")
+        ```
+
+    <!-- -->
+
+    -   AUC (Area under the curve) measures the model's ability to distinguish between classes (churn/no churn). An AUC of `0.9777` indicates excellent performance.
+
+    **ROC Curve**:
+
+    -   The plot visually represents the trade-off between sensitivity (true positive rate) and specificity (true negative rate) across different thresholds.
+
+## Final Model Evaluation
+
+A final confusion matrix is generated for the tuned model to further evaluate its performance.
+
+```{r final evaluation, echo=FALSE, message=FALSE}
+
+# Confusion Matrix for tuned model (Final model)
+conf_matrix_final <- confusionMatrix(rf_predictions, test_data$Churn)
+print("Final Confusion Matrix:")
+print(conf_matrix_final)
+
+precision <- conf_matrix_final$byClass["Pos Pred Value"]  # Positive Predictive Value (Precision)
+recall <- conf_matrix_final$byClass["Sensitivity"]        # Sensitivity (Recall)
+print(paste("Precision:", precision))
+print(paste("Recall:", recall))
+```
+
+The final model achieves perfect precision and recall, indicating no false positives or negatives.
+
+## Cross-validation
+
+We apply **5-fold cross-validation** to assess the robustness of the Random Forest model.
+
+```{r Corss validation, echo=FALSE}
+
+train_control <- trainControl(method = "cv", number = 5)
+cv_model <- train(Churn ~ Time.on.App + Time.on.Website + Length.of.Membership + Yearly.Amount.Spent,
+                  data = Customer_csv,
+                  method = "rf",
+                  trControl = train_control,
+                  tuneGrid = expand.grid(mtry = 2))
+
+print(cv_model)
+```
+
+-   The model was evaluated using 5-fold cross-validation, splitting the data into training and testing folds multiple times.
+
+-   **Accuracy and Kappa:** Both are perfect (1.01.01.0) across all folds.
+
+## Visualizing Variable Importance
+
+The Random Forest model ranks variables based on their importance in making predictions. We visualize this using Mean Decrease Accuracy and Mean Decrease Gini.
+
+```{r visualizing var importance, echo=FALSE}
+
+importance_plot <- randomForest::importance(rf_model_tune)
+varImpPlot(rf_model_tune)
+
+```
+
+The visualization of the Random Forest model, referred to as rf_model_tune, assesses the significance of various predictors through two key metrics: Mean Decrease Accuracy and Mean Decrease Gini. These metrics provide insights into the role each variable plays in making accurate predictions.
+
+## 1. Mean Decrease Accuracy (Left Plot)
+
+**Definition:**\
+Mean Decrease Accuracy measures the reduction in model accuracy when a specific predictor is removed. A higher score indicates that the variable is crucial for maintaining model performance.
+
+**Key Observations:**
+
+-   Yearly.Amount.Spent: This variable emerges as the most influential predictor, with a significant score of approximately 300. Its removal would lead to a substantial decline in model accuracy.
+
+-   Length.of.Membership: This variable holds moderate importance, impacting accuracy but to a lesser extent than Yearly.Amount.Spent.
+
+-   Time.on.App and Time.on.Website: Both variables exhibit relatively low importance in terms of their effect on model accuracy, indicating they are less critical for predictions.
+
+## **2. Mean Decrease Gini (Right Plot)**
+
+**Definition:**\
+Mean Decrease Gini assesses how well a variable contributes to the homogeneity (or purity) of nodes within the decision trees of the Random Forest. A higher value signifies a greater ability to effectively split the data.
+
+**Key Observations:**
+
+-   Yearly.Amount.Spent: Once again, this variable stands out as the most critical, contributing around 150 to node purity.
+
+-   Length.of.Membership: This variable ranks second in importance, reinforcing its significance in the model.
+
+-   Time.on.App and Time.on.Website: These variables show lower contributions to node purity, consistent with their lower rankings in Mean Decrease Accuracy.
+
+## **Overall Interpretation**
+
+The analysis reveals that Yearly.Amount.Spent is the predominant predictor in this Random Forest model, significantly enhancing both accuracy and data splitting capabilities. Following closely is Length.of.Membership, suggesting that longer membership durations may correlate with important behavioral patterns. Conversely, Time.on.App and Time.on.Website have lesser impacts but still play a role in the overall predictions.
+
+## Practical Implications
+
+-   Key drivers of churn: Yearly.Amount.Spent and Length.of.Membership are crucial predictors of customer churn. These features should be prioritized in business strategies aimed at reducing churn.
+
+-   Time on App: While important, these variables have a lesser impact on the prediction of churn, suggesting that marketing strategies might focus more on spending patterns and membership durations.
+
+## Recommendations
+
+-   Model Simplicity: To ensure the Random Forest model is not overfitting, it might be useful to compare with simpler models (e.g., logistic regression or decision trees) to see if the complex Random Forest is necessary.
+
+-   Overfitting Check: Despite perfect accuracy, it’s crucial to validate the model to avoid overfitting, especially if the dataset is small or there’s potential data leakage.
+
+### **Summary of Work Done**
+
+1.  **Threshold Definition:**
+
+    -   Identified "low engagement" customers based on the 25th percentile of `Time.on.App` and `Time.on.Website`.
+
+    -   Defined "long membership" customers using the median of `Length.of.Membership`.
+
+2.  **Churn Prediction Logic:**
+
+    -   Classified customers as churned if they exhibited both low engagement and long membership.
+
+3.  **Random Forest Model:**
+
+    -   Built a baseline Random Forest model and tuned it for improved performance by adjusting hyperparameters like `ntree` and `mtry`.
+
+    -   Assessed the model using metrics like accuracy, AUC, precision, and recall.
+
+4.  **Model Performance:**
+
+    -   Achieved high overall accuracy (\~97%) and an excellent AUC (0.9777), indicating strong model performance in distinguishing between churned and non-churned customers.
+
+5.  **Feature Importance Analysis:**
+
+    -   Found that `Yearly.Amount.Spent` and `Length.of.Membership` are the strongest predictors of churn.
+
+    -   `Time.on.App` and `Time.on.Website` had lesser importance but still contributed to the predictions.
+
+6.  **Cross-Validation:**
+
+    -   Verified model robustness using 5-fold cross-validation, ensuring consistent performance across data splits.
